@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>us.hagreli.Stickies</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Stickies</name>
+  <summary>Keep notes on your desktop</summary>
+
+  <description>
+    <p>
+      Stickies puts small, colourful notes anywhere on your screen and puts them
+      back where you left them the next time you log in — on the right monitor,
+      at the right size.
+    </p>
+    <ul>
+      <li>One window per note, in seven colours</li>
+      <li>Positions remembered per monitor, so unplugging a display does not scatter your notes</li>
+      <li>Notes can be kept on top of other windows</li>
+      <li>Everything saves as you type</li>
+    </ul>
+    <p>
+      Restoring positions requires the companion “Stickies Window Placement”
+      GNOME Shell extension. Wayland does not let an application position its
+      own windows, so the extension does it from inside the compositor. Without
+      it, Stickies still keeps your notes, colours and sizes — only placement is
+      left to the window manager.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">us.hagreli.Stickies.desktop</launchable>
+
+  <developer id="us.hagreli">
+    <name>Matthew Hagrelius</name>
+  </developer>
+
+  <url type="homepage">https://github.com/hagrelius/stickies</url>
+  <url type="bugtracker">https://github.com/hagrelius/stickies/issues</url>
+
+  <categories>
+    <category>Utility</category>
+  </categories>
+
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+
+  <requires>
+    <display_length compare="ge">180</display_length>
+  </requires>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-07-30">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

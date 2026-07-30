@@ -1,0 +1,193 @@
+/*
+ * Stickies note styling.
+ *
+ * Colour is the one place this app deliberately steps outside the Adwaita
+ * palette: on a sticky note the colour *is* content — it is how you tell the
+ * shopping list from the standup notes at a glance — so it cannot come from
+ * --accent-color, which the user's system accent already owns.
+ *
+ * Everything else (spacing, corner radius, focus rings, selection, scrollbars,
+ * header bar structure) is left to the platform stylesheet. Each palette
+ * defines three custom properties and the rules below consume them, so light
+ * and dark variants differ only in the values, never in the rules.
+ *
+ * The `.dark` class is applied by NoteWindow from AdwStyleManager::is_dark(),
+ * because GTK has no CSS selector for the current colour scheme.
+ */
+
+/* ---- Light palettes ---------------------------------------------------- */
+
+.sticky-note.note-yellow {
+  --note-bg: #fbf0b0;
+  --note-header: #f7e483;
+  --note-fg: #3a3212;
+}
+.sticky-note.note-green {
+  --note-bg: #cdefc6;
+  --note-header: #b2e5a8;
+  --note-fg: #17331b;
+}
+.sticky-note.note-blue {
+  --note-bg: #cbe3f9;
+  --note-header: #aad1f3;
+  --note-fg: #12283c;
+}
+.sticky-note.note-purple {
+  --note-bg: #ded5f5;
+  --note-header: #c6b7ee;
+  --note-fg: #261c3e;
+}
+.sticky-note.note-pink {
+  --note-bg: #f9d2e1;
+  --note-header: #f2b2c9;
+  --note-fg: #3d1728;
+}
+.sticky-note.note-orange {
+  --note-bg: #fcdcbd;
+  --note-header: #f8c391;
+  --note-fg: #42250e;
+}
+.sticky-note.note-gray {
+  --note-bg: #dfe3e8;
+  --note-header: #cbd1d8;
+  --note-fg: #21272b;
+}
+
+/* ---- Dark palettes ----------------------------------------------------- */
+
+.sticky-note.dark.note-yellow {
+  --note-bg: #453c14;
+  --note-header: #574c19;
+  --note-fg: #f4ecc9;
+}
+.sticky-note.dark.note-green {
+  --note-bg: #1e3a23;
+  --note-header: #294b2f;
+  --note-fg: #d4ecd8;
+}
+.sticky-note.dark.note-blue {
+  --note-bg: #163048;
+  --note-header: #1e405f;
+  --note-fg: #d0e4f5;
+}
+.sticky-note.dark.note-purple {
+  --note-bg: #2c234c;
+  --note-header: #3a2e64;
+  --note-fg: #ded6f4;
+}
+.sticky-note.dark.note-pink {
+  --note-bg: #471e2f;
+  --note-header: #5c283e;
+  --note-fg: #f5d6e2;
+}
+.sticky-note.dark.note-orange {
+  --note-bg: #472a10;
+  --note-header: #5d3717;
+  --note-fg: #f6ddc2;
+}
+.sticky-note.dark.note-gray {
+  --note-bg: #2a3035;
+  --note-header: #353c43;
+  --note-fg: #e0e5e9;
+}
+
+/* ---- Structure --------------------------------------------------------- */
+
+.sticky-note {
+  background-color: var(--note-bg);
+  color: var(--note-fg);
+}
+
+/* Flat header bar tinted a shade darker than the body, the way the gummed
+   strip on a real sticky note is. No bottom border: the tint is the divider. */
+.sticky-note headerbar {
+  background-color: var(--note-header);
+  color: var(--note-fg);
+  box-shadow: none;
+  border: none;
+  min-height: 34px;
+}
+
+/* Header buttons inherit the note's ink rather than the system foreground,
+   which would be unreadable on a light note in dark mode and vice versa. */
+.sticky-note headerbar button {
+  color: var(--note-fg);
+}
+
+.sticky-note headerbar button:hover {
+  background-color: alpha(var(--note-fg), 0.10);
+}
+
+.sticky-note headerbar button:active,
+.sticky-note headerbar button:checked {
+  background-color: alpha(var(--note-fg), 0.18);
+}
+
+.sticky-note .note-title {
+  color: alpha(var(--note-fg), 0.7);
+  font-weight: bold;
+}
+
+.sticky-note scrolledwindow,
+.sticky-note textview,
+.sticky-note textview text {
+  background-color: transparent;
+  color: var(--note-fg);
+}
+
+.sticky-note textview {
+  /* Slightly larger than body text: a note is read at a glance from across
+     the desk, not studied. */
+  font-size: 1.05em;
+}
+
+.sticky-note textview text selection {
+  background-color: alpha(var(--note-fg), 0.22);
+  color: var(--note-fg);
+}
+
+/* The caret must stay visible on every palette in both schemes. */
+.sticky-note textview {
+  caret-color: var(--note-fg);
+}
+
+.sticky-note scrollbar {
+  background-color: transparent;
+  border: none;
+}
+
+.sticky-note scrollbar slider {
+  background-color: alpha(var(--note-fg), 0.3);
+}
+
+.sticky-note scrollbar slider:hover {
+  background-color: alpha(var(--note-fg), 0.5);
+}
+
+/* A pinned note gets a persistent accent on its pin button so the state is
+   readable without hovering for the tooltip. */
+.sticky-note headerbar button.pinned {
+  background-color: alpha(var(--note-fg), 0.16);
+}
+
+/* ---- Colour swatches in the palette menu ------------------------------- */
+
+.color-swatch {
+  min-width: 26px;
+  min-height: 26px;
+  border-radius: 50%;
+  border: 1px solid alpha(currentColor, 0.25);
+  padding: 0;
+}
+
+.color-swatch.note-yellow { background-color: #f7e483; }
+.color-swatch.note-green  { background-color: #b2e5a8; }
+.color-swatch.note-blue   { background-color: #aad1f3; }
+.color-swatch.note-purple { background-color: #c6b7ee; }
+.color-swatch.note-pink   { background-color: #f2b2c9; }
+.color-swatch.note-orange { background-color: #f8c391; }
+.color-swatch.note-gray   { background-color: #cbd1d8; }
+
+.color-swatch:checked {
+  border: 2px solid var(--accent-color);
+}

@@ -1,0 +1,23 @@
+[Desktop Entry]
+Type=Application
+Name=Stickies
+GenericName=Sticky Notes
+Comment=Keep notes on your desktop
+Categories=Utility;TextEditor;GNOME;GTK;
+Keywords=note;notes;sticky;memo;reminder;postit;
+Exec=stickies
+Icon=us.hagreli.Stickies
+Terminal=false
+StartupNotify=true
+# Must match the application ID so the shell associates windows with this entry.
+StartupWMClass=us.hagreli.Stickies
+DBusActivatable=true
+Actions=new-note;show-all;
+
+[Desktop Action new-note]
+Name=New Note
+Exec=stickies --new-note
+
+[Desktop Action show-all]
+Name=Show All Notes
+Exec=stickies --show-all

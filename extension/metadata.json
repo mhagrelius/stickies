@@ -1,0 +1,16 @@
+{
+  "uuid": "stickies@hagreli.us",
+  "name": "Stickies Window Placement",
+  "description": "Lets the Stickies app position its note windows. Wayland gives applications no way to place their own windows, so this extension does it from inside the compositor and answers geometry queries over D-Bus. It only ever touches windows belonging to the Stickies application.",
+  "shell-version": [
+    "48",
+    "49",
+    "50"
+  ],
+  "session-modes": [
+    "user"
+  ],
+  "version": 1,
+  "url": "https://github.com/hagrelius/stickies",
+  "settings-schema": "org.gnome.shell.extensions.stickies"
+}

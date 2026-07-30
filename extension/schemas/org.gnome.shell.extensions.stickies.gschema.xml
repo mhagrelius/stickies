@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="stickies">
+  <schema id="org.gnome.shell.extensions.stickies"
+          path="/org/gnome/shell/extensions/stickies/">
+
+    <key name="new-note" type="as">
+      <default><![CDATA[['<Super><Shift>n']]]></default>
+      <summary>Create a new note</summary>
+      <description>
+        Global shortcut that creates a note from anywhere. Set to an empty list
+        to disable it.
+      </description>
+    </key>
+
+    <key name="hide-from-taskbar" type="b">
+      <default>true</default>
+      <summary>Keep note windows out of the dock and window switcher</summary>
+      <description>
+        Sticky notes are more like desktop widgets than applications, so by
+        default they are hidden from the dash and Alt-Tab. Mutter exposes
+        skip-taskbar as read-only, so this is attempted rather than guaranteed;
+        if it has no effect on your system, turn it off to avoid the overhead.
+      </description>
+    </key>
+
+  </schema>
+</schemalist>

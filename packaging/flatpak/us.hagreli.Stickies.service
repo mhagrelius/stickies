@@ -1,0 +1,11 @@
+# D-Bus activation for the Flatpak build.
+#
+# The desktop file sets DBusActivatable=true, so a matching service file has to
+# exist or `flatpak build-export` refuses the app outright. The Exec path is the
+# in-sandbox one; Flatpak rewrites it to a `flatpak run` invocation on export.
+#
+# The deb and install.sh generate their own version of this with their own
+# prefix, which is why it is not shared.
+[D-BUS Service]
+Name=us.hagreli.Stickies
+Exec=/app/bin/stickies --gapplication-service

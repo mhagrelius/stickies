@@ -1,0 +1,7 @@
+/target
+/dist
+/preview
+/.flatpak-build
+# Generated from Cargo.lock by packaging/build-flatpak.sh
+/packaging/flatpak/cargo-sources.json
+extension/schemas/gschemas.compiled

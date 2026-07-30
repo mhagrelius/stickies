@@ -1,0 +1,32 @@
+#!/bin/sh
+# Refresh the caches that make the app appear in the launcher with its icon.
+set -e
+
+if [ "$1" = "configure" ]; then
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -qtf /usr/share/icons/hicolor 2>/dev/null || true
+    fi
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database -q /usr/share/applications 2>/dev/null || true
+    fi
+    # Required, or the extension cannot read its shortcut setting.
+    if command -v glib-compile-schemas >/dev/null 2>&1; then
+        glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+    fi
+
+    # The extension is installed but not enabled: enabling is a per-user
+    # setting, and a package should not switch on a shell extension behind
+    # the user's back.
+    cat <<'MSG'
+
+Stickies is installed. To have notes return to the place you left them:
+
+    gnome-extensions enable stickies@hagreli.us
+
+then log out and back in. GNOME Shell only loads newly installed extensions
+at startup, and Wayland has no way to restart the shell in place.
+
+MSG
+fi
+
+exit 0

@@ -1,0 +1,23 @@
+Package: stickies
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Matthew Hagrelius <matthew@hagreli.us>
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Recommends: gnome-shell (>= 48)
+Section: utils
+Priority: optional
+Homepage: https://github.com/hagrelius/stickies
+Description: Sticky notes that stay where you put them
+ Small colourful notes you scatter across your desktop. Close one and it goes
+ away; launch Stickies again and it comes back on the same monitor, in the same
+ spot, at the same size.
+ .
+ Positions are stored relative to each monitor's work area, so rearranging or
+ unplugging a display moves notes with it instead of stranding them off-screen.
+ .
+ This package also installs a GNOME Shell extension. Wayland gives applications
+ no way to position their own windows, so the extension does it from inside the
+ compositor. It acts only on windows belonging to Stickies. Without it the app
+ still keeps your notes, colours and sizes; only placement is left to the window
+ manager. Enable it with "gnome-extensions enable stickies@hagreli.us".

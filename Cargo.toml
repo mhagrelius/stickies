@@ -1,0 +1,31 @@
+[package]
+name = "stickies"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Sticky notes for the GNOME desktop"
+license = "GPL-3.0-or-later"
+
+[[bin]]
+name = "stickies"
+path = "src/main.rs"
+
+[lib]
+name = "stickies"
+path = "src/lib.rs"
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.11", features = ["v4_22"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_9"] }
+# Direct dependency purely to raise the API level: gtk4 pulls gio in at a
+# lower feature level, and ApplicationCommandLine::print_literal (used by
+# --diagnose to write to the *calling* terminal rather than the primary
+# instance's stdout) is gated behind v2_80. Installed glib here is 2.88.
+gio = { version = "0.22", features = ["v2_80"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+
+[dev-dependencies]
+adw = { package = "libadwaita", version = "0.9", features = ["v1_9"] }
+tempfile = "3"
