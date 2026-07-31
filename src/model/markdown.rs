@@ -41,8 +41,9 @@ pub enum Style {
     CodeBlock,
     /// `> quoted`
     Quote,
-    /// The content of a `- ` or `1. ` item, indented.
-    ListItem,
+    /// The content of a `- ` or `1. ` item, indented. The level is the nesting
+    /// depth, 0 for a top-level item.
+    ListItem(u8),
     /// The visible text of `[text](url)`.
     Link,
 }
@@ -92,6 +93,8 @@ pub fn parse(text: &str) -> Parsed {
 
     let mut line_start = 0usize;
     let mut in_fence = false;
+    // Leading-space widths of the enclosing list levels, outermost first.
+    let mut levels: Vec<usize> = Vec::new();
 
     while line_start <= chars.len() {
         let line_end = chars[line_start..]
@@ -108,7 +111,7 @@ pub fn parse(text: &str) -> Parsed {
         } else if in_fence {
             parsed.push_span(line_start, line_end, Style::CodeBlock);
         } else {
-            parse_line(line, line_start, &mut parsed);
+            parse_line(line, line_start, &mut parsed, &mut levels);
         }
 
         if line_end >= chars.len() {
@@ -181,14 +184,22 @@ fn is_fence(line: &[char]) -> bool {
     trimmed.starts_with(&['`', '`', '`']) || trimmed.starts_with(&['~', '~', '~'])
 }
 
-fn parse_line(line: &[char], offset: usize, parsed: &mut Parsed) {
+fn parse_line(line: &[char], offset: usize, parsed: &mut Parsed, levels: &mut Vec<usize>) {
     if line.is_empty() {
+        // A blank line separates items but does not end the list.
         return;
     }
 
     // ---- block prefix ----
     let indent = line.iter().take_while(|c| **c == ' ').count();
     let rest = &line[indent..];
+
+    let is_item = bullet_len(rest).or_else(|| ordered_len(rest)).is_some();
+    if !is_item && indent == 0 {
+        // Anything else at the left edge ends the list; an indented line is a
+        // continuation of the item above and leaves the nesting alone.
+        levels.clear();
+    }
 
     let (content_start, block_style) = if let Some(level) = heading_level(rest) {
         // "### " — the hashes and the space are syntax.
@@ -199,13 +210,17 @@ fn parse_line(line: &[char], offset: usize, parsed: &mut Parsed) {
         let marker_len = if rest.get(1) == Some(&' ') { 2 } else { 1 };
         parsed.push_marker(offset + indent, offset + indent + marker_len);
         (indent + marker_len, Some(Style::Quote))
-    } else if let Some(marker_len) = bullet_len(rest) {
+    } else if let Some(marker_len) = bullet_len(rest).or_else(|| ordered_len(rest)) {
         // The bullet stays *visible*: hiding it would delete the only thing
         // that makes a list look like a list, since a text view cannot
-        // substitute a nicer glyph for it.
-        (indent + marker_len, Some(Style::ListItem))
-    } else if let Some(marker_len) = ordered_len(rest) {
-        (indent + marker_len, Some(Style::ListItem))
+        // substitute a nicer glyph for it. The spaces in front of it are
+        // syntax, though — the level's margin does that job now, and leaving
+        // them in would indent a nested item twice over.
+        parsed.push_marker(offset, offset + indent);
+        (
+            indent + marker_len,
+            Some(Style::ListItem(depth(levels, indent))),
+        )
     } else {
         (indent, None)
     };
@@ -217,6 +232,26 @@ fn parse_line(line: &[char], offset: usize, parsed: &mut Parsed) {
 
     parse_inline(&line[content_start..], offset + content_start, parsed);
 }
+
+/// How deeply a list item at `indent` spaces is nested.
+///
+/// Taken from the widths already seen in this list rather than from a fixed
+/// number of spaces per level, so two-space and four-space notes both nest one
+/// level at a time — and a note that mixes them still nests monotonically.
+fn depth(levels: &mut Vec<usize>, indent: usize) -> u8 {
+    while levels.last().is_some_and(|width| *width > indent) {
+        levels.pop();
+    }
+    if levels.last() != Some(&indent) {
+        levels.push(indent);
+    }
+    // Past a handful of levels the margin would eat the note, so the styling
+    // stops deepening; the parse is still honest about the structure.
+    (levels.len() - 1).min(MAX_LIST_DEPTH as usize) as u8
+}
+
+/// Deepest nesting level with its own indent.
+pub const MAX_LIST_DEPTH: u8 = 4;
 
 /// `#` to `######` followed by a space.
 fn heading_level(line: &[char]) -> Option<u8> {
@@ -502,7 +537,10 @@ mod tests {
     fn bullets_stay_visible_because_they_are_the_rendering() {
         let source = "- milk\n- bread";
         let parsed = parse(source);
-        assert_eq!(styles(&parsed), vec![Style::ListItem, Style::ListItem]);
+        assert_eq!(
+            styles(&parsed),
+            vec![Style::ListItem(0), Style::ListItem(0)]
+        );
         assert_eq!(text_of(source, &parsed.spans[0]), "milk");
         // Hiding "- " would leave an unexplained indent, so it is kept.
         assert_eq!(rendered(source), source);
@@ -511,14 +549,79 @@ mod tests {
     #[test]
     fn an_asterisk_bullet_is_not_italic() {
         let parsed = parse("* milk");
-        assert_eq!(styles(&parsed), vec![Style::ListItem]);
+        assert_eq!(styles(&parsed), vec![Style::ListItem(0)]);
     }
 
     #[test]
     fn numbered_lists_are_recognised() {
-        assert_eq!(styles(&parse("1. first")), vec![Style::ListItem]);
-        assert_eq!(styles(&parse("12) twelfth")), vec![Style::ListItem]);
+        assert_eq!(styles(&parse("1. first")), vec![Style::ListItem(0)]);
+        assert_eq!(styles(&parse("12) twelfth")), vec![Style::ListItem(0)]);
         assert!(parse("1.no space").spans.is_empty());
+    }
+
+    #[test]
+    fn indented_items_nest_one_level_per_step() {
+        // Two-space and four-space notes are both one level per step.
+        for unit in ["  ", "    "] {
+            let source = format!("- milk\n{unit}- semi-skimmed\n{unit}{unit}- one pint\n- bread");
+            assert_eq!(
+                styles(&parse(&source)),
+                vec![
+                    Style::ListItem(0),
+                    Style::ListItem(1),
+                    Style::ListItem(2),
+                    Style::ListItem(0),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn nesting_never_goes_backwards_when_widths_are_mixed() {
+        let parsed = parse("- a\n   - b\n  - c\n- d");
+        assert_eq!(
+            styles(&parsed),
+            vec![
+                Style::ListItem(0),
+                Style::ListItem(1),
+                // Narrower than "b" but still indented, so it is b's sibling.
+                Style::ListItem(1),
+                Style::ListItem(0),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_paragraph_at_the_left_edge_ends_the_list() {
+        let parsed = parse("  - deep\nprose\n  - deep again");
+        assert_eq!(
+            styles(&parsed),
+            vec![Style::ListItem(0), Style::ListItem(0)]
+        );
+    }
+
+    #[test]
+    fn a_blank_line_between_items_keeps_the_nesting() {
+        let parsed = parse("- milk\n\n  - semi-skimmed");
+        assert_eq!(
+            styles(&parsed),
+            vec![Style::ListItem(0), Style::ListItem(1)]
+        );
+    }
+
+    #[test]
+    fn nesting_stops_deepening_past_the_styled_maximum() {
+        let source: String = (0..8)
+            .map(|level| format!("{}- item\n", "  ".repeat(level)))
+            .collect();
+        let deepest = styles(&parse(&source))
+            .into_iter()
+            .filter_map(|style| match style {
+                Style::ListItem(level) => Some(level),
+                _ => None,
+            })
+            .max();
+        assert_eq!(deepest, Some(MAX_LIST_DEPTH));
     }
 
     #[test]

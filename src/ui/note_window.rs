@@ -251,10 +251,17 @@ impl NoteWindow {
             tag.set_style(gtk::pango::Style::Italic);
             tag.set_left_margin(24);
         });
-        add("md-list", &|tag| {
-            tag.set_left_margin(10);
-            tag.set_pixels_above_lines(2);
-        });
+        // One tag per nesting level. Hanging indent: the bullet sits in the
+        // margin and wrapped lines line up under the item's text instead of
+        // under the bullet.
+        for level in 0..=markdown::MAX_LIST_DEPTH {
+            let margin = 36 + i32::from(level) * 24;
+            add(&format!("md-list{level}"), &|tag| {
+                tag.set_left_margin(margin);
+                tag.set_indent(-18);
+                tag.set_pixels_above_lines(2);
+            });
+        }
         add("md-link", &|tag| {
             tag.set_underline(gtk::pango::Underline::Single)
         });
@@ -297,7 +304,7 @@ impl NoteWindow {
             // as content-only — the text after "> " or "- " — so extend them
             // back to the line start, or their indents silently do nothing.
             let start = match span.style {
-                Style::Heading(_) | Style::Quote | Style::ListItem | Style::CodeBlock => {
+                Style::Heading(_) | Style::Quote | Style::ListItem(_) | Style::CodeBlock => {
                     let mut iter = buffer.iter_at_offset(span.start as i32);
                     iter.set_line_offset(0);
                     iter.offset() as usize
@@ -313,7 +320,7 @@ impl NoteWindow {
                 Style::Code => "md-code".into(),
                 Style::CodeBlock => "md-codeblock".into(),
                 Style::Quote => "md-quote".into(),
-                Style::ListItem => "md-list".into(),
+                Style::ListItem(level) => format!("md-list{level}"),
                 Style::Link => "md-link".into(),
             };
             apply(&name, start, span.end);
