@@ -12,7 +12,7 @@ use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::glib::subclass::Signal;
 use gtk::glib::{self, clone, prelude::ToVariant};
-use gtk::{gio, pango};
+use gtk::{gdk, gio, pango};
 use std::cell::{Cell, RefCell};
 use std::sync::OnceLock;
 
@@ -141,13 +141,18 @@ impl NoteWindow {
     }
 
     /// The current text of the buffer.
+    ///
+    /// Hidden characters included. The invisible tag is how the note is
+    /// *rendered* — the syntax is still part of the note, and asking the buffer
+    /// to leave it out would make what gets saved depend on whether the window
+    /// happened to have focus.
     pub fn body(&self) -> String {
         let Some(view) = self.imp().text_view.borrow().clone() else {
             return String::new();
         };
         let buffer = view.buffer();
         buffer
-            .text(&buffer.start_iter(), &buffer.end_iter(), false)
+            .text(&buffer.start_iter(), &buffer.end_iter(), true)
             .to_string()
     }
 
@@ -171,7 +176,7 @@ impl NoteWindow {
 
         if let Some(view) = imp.text_view.borrow().clone() {
             let buffer = view.buffer();
-            if buffer.text(&buffer.start_iter(), &buffer.end_iter(), false) != note.body {
+            if buffer.text(&buffer.start_iter(), &buffer.end_iter(), true) != note.body {
                 buffer.set_text(&note.body);
             }
         }
@@ -279,7 +284,10 @@ impl NoteWindow {
             return;
         };
         let buffer = view.buffer();
-        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+        // Hidden characters included, or the offsets the parser reports would
+        // be measured against a shorter string than the buffer holds and the
+        // tags would land on the wrong characters.
+        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
 
         buffer.remove_all_tags(&buffer.start_iter(), &buffer.end_iter());
         let parsed = markdown::parse(&text);
@@ -507,6 +515,25 @@ impl NoteWindow {
             self,
             move |view| win.set_markup_visible(view.has_focus())
         ));
+
+        let keys = gtk::EventControllerKey::new();
+        keys.connect_key_pressed(clone!(
+            #[weak]
+            text_view,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, key, _, state| {
+                let enter = matches!(key, gdk::Key::Return | gdk::Key::KP_Enter);
+                let plain = !state
+                    .intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK);
+                if enter && plain {
+                    continue_list(&text_view)
+                } else {
+                    glib::Propagation::Proceed
+                }
+            }
+        ));
+        text_view.add_controller(keys);
 
         text_view.buffer().connect_changed(clone!(
             #[weak(rename_to = win)]
@@ -806,4 +833,55 @@ impl NoteWindow {
             self.remove_css_class("dark");
         }
     }
+}
+
+/// Carry a list on to the next line when Enter is pressed inside one.
+///
+/// A list you have to retype the bullet for is a list you stop using, so Enter
+/// lays down the same indent and bullet, or the next number. The escape hatches
+/// are the two people reach for anyway: Enter on an empty item, or Backspace
+/// over the bullet just inserted.
+fn continue_list(view: &gtk::TextView) -> glib::Propagation {
+    if !view.is_editable() {
+        return glib::Propagation::Proceed;
+    }
+    let buffer = view.buffer();
+    let cursor = buffer.iter_at_mark(&buffer.get_insert());
+
+    let mut line_start = cursor;
+    line_start.set_line_offset(0);
+    let mut line_end = line_start;
+    if !line_end.ends_line() {
+        line_end.forward_to_line_end();
+    }
+    let line = buffer.text(&line_start, &line_end, true);
+
+    let Some(action) = markdown::list_enter(&line) else {
+        return glib::Propagation::Proceed;
+    };
+
+    // One undo step, so Ctrl+Z takes back the whole line rather than the
+    // newline and the bullet separately.
+    buffer.begin_user_action();
+    buffer.delete_selection(true, true);
+    match action {
+        markdown::ListEnter::Continue(prefix) => {
+            buffer.insert_at_cursor(&format!("\n{prefix}"));
+        }
+        // Leave the cursor on the now-blank line: the list is over, and the
+        // next Enter is an ordinary one.
+        markdown::ListEnter::EndList => {
+            let mut start = buffer.iter_at_mark(&buffer.get_insert());
+            start.set_line_offset(0);
+            let mut end = start;
+            if !end.ends_line() {
+                end.forward_to_line_end();
+            }
+            buffer.delete(&mut start, &mut end);
+        }
+    }
+    buffer.end_user_action();
+
+    view.scroll_mark_onscreen(&buffer.get_insert());
+    glib::Propagation::Stop
 }

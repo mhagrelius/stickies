@@ -227,10 +227,58 @@ fn parse_line(line: &[char], offset: usize, parsed: &mut Parsed, levels: &mut Ve
 
     let content_start = content_start.min(line.len());
     if let Some(style) = block_style {
-        parsed.push_span(offset + content_start, offset + line.len(), style);
+        // A marker with nothing after it yet is still that block, so the span
+        // falls back to covering the marker itself. Otherwise a freshly typed
+        // "- " carries no style, and the item only jumps to its indent once you
+        // start writing in it.
+        let start = if content_start < line.len() {
+            content_start
+        } else {
+            indent
+        };
+        parsed.push_span(offset + start, offset + line.len(), style);
     }
 
     parse_inline(&line[content_start..], offset + content_start, parsed);
+}
+
+/// What pressing Enter on a line should do to keep its list going.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListEnter {
+    /// Start the new line with this text: the item's indent, and either its
+    /// bullet or the next number.
+    Continue(String),
+    /// The item has no content. Typing a bullet and then nothing is how you say
+    /// the list is over, so clear the marker rather than laying down another.
+    EndList,
+}
+
+/// The list-continuation behaviour for pressing Enter on `line`.
+///
+/// `None` for anything that is not a list item, which leaves Enter alone.
+pub fn list_enter(line: &str) -> Option<ListEnter> {
+    let chars: Vec<char> = line.chars().collect();
+    let indent = chars.iter().take_while(|c| **c == ' ').count();
+    let rest = &chars[indent..];
+    let marker_len = bullet_len(rest).or_else(|| ordered_len(rest))?;
+
+    if rest[marker_len..].iter().all(|c| c.is_whitespace()) {
+        return Some(ListEnter::EndList);
+    }
+
+    let mut prefix: String = " ".repeat(indent);
+    if bullet_len(rest).is_some() {
+        prefix.push(rest[0]);
+    } else {
+        let digits: String = rest.iter().take_while(|c| c.is_ascii_digit()).collect();
+        // Saturating rather than wrapping: a note numbered to u32::MAX is
+        // nobody's real list, and repeating the number beats restarting at 0.
+        let next = digits.parse::<u32>().unwrap_or(0).saturating_add(1);
+        prefix.push_str(&next.to_string());
+        prefix.push(rest[digits.len()]); // '.' or ')'
+    }
+    prefix.push(' ');
+    Some(ListEnter::Continue(prefix))
 }
 
 /// How deeply a list item at `indent` spaces is nested.
@@ -624,6 +672,88 @@ mod tests {
         assert_eq!(deepest, Some(MAX_LIST_DEPTH));
     }
 
+    /// The continuation prefix, for readable assertions.
+    fn continues(line: &str) -> Option<String> {
+        match list_enter(line) {
+            Some(ListEnter::Continue(prefix)) => Some(prefix),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn enter_repeats_the_bullet() {
+        for bullet in ['-', '*', '+'] {
+            let line = format!("{bullet} milk");
+            assert_eq!(continues(&line).as_deref(), Some(&*format!("{bullet} ")));
+        }
+    }
+
+    #[test]
+    fn enter_counts_the_next_number_on() {
+        assert_eq!(continues("1. first").as_deref(), Some("2. "));
+        assert_eq!(continues("9. ninth").as_deref(), Some("10. "));
+        assert_eq!(continues("12) twelfth").as_deref(), Some("13) "));
+    }
+
+    #[test]
+    fn enter_keeps_the_item_at_its_own_indent() {
+        assert_eq!(continues("  - semi-skimmed").as_deref(), Some("  - "));
+        assert_eq!(continues("    2. second").as_deref(), Some("    3. "));
+    }
+
+    #[test]
+    fn enter_on_an_empty_item_ends_the_list() {
+        for line in ["- ", "  - ", "1. ", "  3) ", "-   "] {
+            assert_eq!(list_enter(line), Some(ListEnter::EndList), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn enter_leaves_everything_that_is_not_a_list_alone() {
+        for line in [
+            "",
+            "just a note",
+            "# Heading",
+            "> quoted",
+            "1.no space",
+            "5 * 3",
+        ] {
+            assert_eq!(list_enter(line), None, "{line:?}");
+        }
+    }
+
+    #[test]
+    fn enter_continues_a_list_whose_content_is_marked_up() {
+        assert_eq!(continues("- **oat** milk").as_deref(), Some("- "));
+        assert_eq!(continues("- 🎉 party").as_deref(), Some("- "));
+    }
+
+    #[test]
+    fn an_item_with_nothing_in_it_yet_is_still_an_item() {
+        // The line Enter has just laid down. Without a span the UI has no tag
+        // to hang the indent on, so a new item sits at the left edge until you
+        // type into it and then jumps.
+        for source in ["- ", "  - ", "1. "] {
+            let parsed = parse(source);
+            assert_eq!(parsed.spans.len(), 1, "{source:?}");
+            assert!(
+                matches!(parsed.spans[0].style, Style::ListItem(_)),
+                "{source:?}"
+            );
+            assert_eq!(
+                text_of(source, &parsed.spans[0]),
+                source.trim_start_matches(' '),
+                "the span covers the marker, which is all there is to cover"
+            );
+        }
+        // And it nests like any other, so Enter inside a nested item leaves the
+        // caret at the depth it was already at.
+        assert_eq!(
+            styles(&parse("- milk\n  - ")),
+            vec![Style::ListItem(0), Style::ListItem(1)]
+        );
+    }
+
     #[test]
     fn quotes_hide_their_marker() {
         let source = "> to be fair";
@@ -696,10 +826,12 @@ mod tests {
     #[test]
     fn asterisks_used_as_punctuation_do_not_italicise() {
         // Real note content: separators, arithmetic, footnote marks.
-        for source in ["a * b * c", "5 * 3 * 2 = 30", "note *", "* "] {
+        for source in ["a * b * c", "5 * 3 * 2 = 30", "note *"] {
             assert_eq!(rendered(source), source, "{source:?} was reformatted");
             assert!(parse(source).spans.is_empty(), "{source:?} was styled");
         }
+        // "* " is a bullet nobody has written in yet, not an italic.
+        assert_eq!(styles(&parse("* ")), vec![Style::ListItem(0)]);
         // But real emphasis still works either side of them.
         assert_eq!(rendered("2 * 3 and *this*"), "2 * 3 and this");
     }

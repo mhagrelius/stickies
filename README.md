@@ -99,6 +99,10 @@ Supported: `# headings` (1–6), `**bold**`, `*italic*`, `~~strikethrough~~`,
 unexplained indent. Anything unrecognised, including half-typed markup, is left
 as plain text.
 
+**Enter carries a list on.** A new line inside a list starts with the same
+indent and bullet, or the next number. Enter on an empty item ends the list
+instead, and Backspace takes the bullet back off.
+
 **The file stays plain Markdown.** Rendering is a view concern; `notes.json`
 holds exactly what you typed.
 

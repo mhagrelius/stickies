@@ -412,6 +412,42 @@ fn put_away_keeps_the_note_and_only_hides_it() {
     assert!(window.is_visible(), "and it can come straight back");
 }
 
+fn enter_carries_a_list_on_to_the_next_line() {
+    let app = init();
+    let window = NoteWindow::new(&app);
+    window.bind(&note("", Palette::Yellow));
+    drain_events();
+
+    let view = window
+        .content()
+        .and_then(find_text_view)
+        .expect("text view");
+
+    // Type a line, put the cursor at its end, press Enter.
+    let press_enter = |body: &str| {
+        let buffer = view.buffer();
+        buffer.set_text(body);
+        buffer.place_cursor(&buffer.end_iter());
+        send_enter(&view);
+        drain_events();
+        window.body()
+    };
+
+    assert_eq!(press_enter("- milk"), "- milk\n- ");
+    assert_eq!(press_enter("1. first"), "1. first\n2. ");
+    assert_eq!(press_enter("  * nested"), "  * nested\n  * ");
+    assert_eq!(
+        press_enter("- milk\n- "),
+        "- milk\n",
+        "Enter on an empty item ends the list instead of adding another bullet"
+    );
+    assert_eq!(
+        press_enter("just prose"),
+        "just prose",
+        "outside a list the handler declines, leaving Enter to the text view"
+    );
+}
+
 fn deleting_an_empty_note_skips_the_confirmation() {
     let app = init();
     let window = NoteWindow::new(&app);
@@ -657,6 +693,23 @@ fn markdown_is_styled_and_its_markup_hidden_until_focused() {
         "markup must be hidden when unfocused"
     );
 
+    // Hiding is a rendering device, not an edit: what would be saved right now
+    // is still the note as written, syntax and nested indents included.
+    assert_eq!(
+        window.body(),
+        "# Shopping\n\n- **oat** milk",
+        "an unfocused window must not report a stripped-down note"
+    );
+    window.bind(&note("- milk\n  - semi-skimmed", Palette::Yellow));
+    drain_events();
+    assert_eq!(
+        window.body(),
+        "- milk\n  - semi-skimmed",
+        "the indent that nests an item is hidden, not deleted"
+    );
+    window.bind(&note("# Shopping\n\n- **oat** milk", Palette::Yellow));
+    drain_events();
+
     // "# " is syntax, "Shopping" is not.
     let hash = buffer.iter_at_offset(0);
     assert!(hash.has_tag(&marker), "the heading hashes are syntax");
@@ -767,6 +820,7 @@ fn note_window_suite() {
     case!(the_title_bar_shows_the_note_not_its_markup);
     case!(markdown_is_styled_and_its_markup_hidden_until_focused);
     case!(editing_restyles_without_reporting_a_spurious_change);
+    case!(enter_carries_a_list_on_to_the_next_line);
     case!(deleting_an_empty_note_skips_the_confirmation);
     case!(deleting_a_note_with_content_asks_first);
     case!(stored_size_is_applied_and_clamped_to_the_minimum);
@@ -778,9 +832,34 @@ fn note_window_suite() {
 
     assert!(
         failures.is_empty(),
-        "{} of 24 widget cases failed: {:#?}\n(panic messages are printed above, in order)",
+        "{} of 25 widget cases failed: {:#?}\n(panic messages are printed above, in order)",
         failures.len(),
         failures
+    );
+}
+
+/// Press Enter on the text view.
+///
+/// These windows are never presented, so there is no surface to deliver a real
+/// key event to. Emitting `key-pressed` on the view's own key controller runs
+/// the same handler the compositor would reach, which is the part under test;
+/// what GTK does with the events it is not given is GTK's business.
+fn send_enter(view: &gtk::TextView) {
+    use gtk::glib::translate::IntoGlib;
+
+    let controllers = view.observe_controllers();
+    let controller = (0..controllers.n_items())
+        .filter_map(|index| controllers.item(index))
+        .find_map(|object| object.downcast::<gtk::EventControllerKey>().ok())
+        .expect("the text view has a key controller");
+
+    controller.emit_by_name::<bool>(
+        "key-pressed",
+        &[
+            &gtk::gdk::Key::Return.into_glib(),
+            &0u32,
+            &gtk::gdk::ModifierType::empty(),
+        ],
     );
 }
 
