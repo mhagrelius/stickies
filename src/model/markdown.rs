@@ -281,6 +281,100 @@ pub fn list_enter(line: &str) -> Option<ListEnter> {
     Some(ListEnter::Continue(prefix))
 }
 
+/// An ordered item whose number no longer matches its position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Renumber {
+    /// Character offset of the first digit of the item's number.
+    pub start: usize,
+    /// Exclusive character offset past its last digit.
+    pub end: usize,
+    /// The number the item should carry instead.
+    pub number: u32,
+}
+
+/// The ordered-list items whose numbers have fallen out of sequence.
+///
+/// Deleting item 3 of 7 leaves the rest counting 4, 5, 6, 7, which is wrong on
+/// sight. Only items that actually need changing are reported, so applying an
+/// empty result is a no-op and a note nobody has broken is never rewritten.
+///
+/// A list keeps whatever number it starts on — a note beginning "3." was
+/// written that way deliberately — and each nesting level counts on its own.
+pub fn renumber(text: &str) -> Vec<Renumber> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut edits = Vec::new();
+    // Leading-space width of each enclosing level with the number its next
+    // item should carry. `None` where the level is not counting: a fresh
+    // level, or one whose items are bullets.
+    let mut levels: Vec<(usize, Option<u32>)> = Vec::new();
+
+    let mut line_start = 0usize;
+    let mut in_fence = false;
+
+    while line_start <= chars.len() {
+        let line_end = chars[line_start..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map(|offset| line_start + offset)
+            .unwrap_or(chars.len());
+        let line = &chars[line_start..line_end];
+
+        let indent = line.iter().take_while(|c| **c == ' ').count();
+        let rest = &line[indent..];
+
+        if is_fence(line) {
+            in_fence = !in_fence;
+        } else if in_fence || line.is_empty() {
+            // Numbers inside a code block are text, and a blank line separates
+            // items without ending the list.
+        } else if bullet_len(rest).is_some() {
+            *counter_at(&mut levels, indent) = None;
+        } else if ordered_len(rest).is_some() {
+            let digits = rest.iter().take_while(|c| c.is_ascii_digit()).count();
+            let written: Option<u32> = rest[..digits].iter().collect::<String>().parse().ok();
+            let counter = counter_at(&mut levels, indent);
+            match *counter {
+                Some(expected) => {
+                    if written != Some(expected) {
+                        edits.push(Renumber {
+                            start: line_start + indent,
+                            end: line_start + indent + digits,
+                            number: expected,
+                        });
+                    }
+                    *counter = Some(expected.saturating_add(1));
+                }
+                // The item that opens a level sets where it counts from. A
+                // number too long for a u32 is not one this can count on, so
+                // the level stays uncounted and the note is left alone.
+                None => *counter = written.map(|n| n.saturating_add(1)),
+            }
+        } else if indent == 0 {
+            // Anything else at the left edge ends the list, as in `parse`.
+            levels.clear();
+        }
+
+        if line_end >= chars.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+
+    edits
+}
+
+/// The counter for the level a list item at `indent` spaces belongs to,
+/// entering it — and leaving any deeper ones — the way [`depth`] does.
+fn counter_at(levels: &mut Vec<(usize, Option<u32>)>, indent: usize) -> &mut Option<u32> {
+    while levels.last().is_some_and(|(width, _)| *width > indent) {
+        levels.pop();
+    }
+    if levels.last().map(|(width, _)| *width) != Some(indent) {
+        levels.push((indent, None));
+    }
+    &mut levels.last_mut().expect("a level was just entered").1
+}
+
 /// How deeply a list item at `indent` spaces is nested.
 ///
 /// Taken from the widths already seen in this list rather than from a fixed
@@ -752,6 +846,120 @@ mod tests {
             styles(&parse("- milk\n  - ")),
             vec![Style::ListItem(0), Style::ListItem(1)]
         );
+    }
+
+    /// The note with its numbering put back in sequence.
+    fn renumbered(source: &str) -> String {
+        let mut chars: Vec<char> = source.chars().collect();
+        // Back to front: an earlier edit would shift every later offset.
+        for edit in renumber(source).iter().rev() {
+            let digits: Vec<char> = edit.number.to_string().chars().collect();
+            chars.splice(edit.start..edit.end, digits);
+        }
+        chars.into_iter().collect()
+    }
+
+    #[test]
+    fn deleting_an_item_closes_the_gap_in_the_numbering() {
+        // Item 3 of 5 gone: what is left must count 1, 2, 3, 4.
+        assert_eq!(
+            renumbered("1. one\n2. two\n4. four\n5. five"),
+            "1. one\n2. two\n3. four\n4. five"
+        );
+    }
+
+    #[test]
+    fn a_list_already_in_sequence_is_left_untouched() {
+        for source in [
+            "1. one\n2. two\n3. three",
+            "- milk\n- bread",
+            "just prose\n42 things",
+            "",
+        ] {
+            assert!(renumber(source).is_empty(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn only_the_items_that_are_wrong_are_reported() {
+        let edits = renumber("1. one\n2. two\n4. four\n5. five");
+        assert_eq!(edits.len(), 2, "the first two items are already right");
+        assert_eq!(edits[0].number, 3);
+    }
+
+    #[test]
+    fn a_list_keeps_the_number_it_starts_on() {
+        assert_eq!(renumbered("3. three\n5. four"), "3. three\n4. four");
+    }
+
+    #[test]
+    fn each_nesting_level_counts_on_its_own() {
+        assert_eq!(
+            renumbered("1. one\n  1. a\n  3. b\n5. two\n  9. a"),
+            "1. one\n  1. a\n  2. b\n2. two\n  9. a",
+            "and a nested list restarts from whatever its first item says"
+        );
+    }
+
+    #[test]
+    fn multi_digit_numbers_are_replaced_whole() {
+        assert_eq!(renumbered("9. nine\n11. ten"), "9. nine\n10. ten");
+        assert_eq!(renumbered("10. ten\n10. eleven"), "10. ten\n11. eleven");
+    }
+
+    #[test]
+    fn both_number_punctuations_keep_their_own_shape() {
+        assert_eq!(renumbered("1) one\n3) two"), "1) one\n2) two");
+    }
+
+    #[test]
+    fn prose_at_the_left_edge_starts_the_numbering_over() {
+        assert_eq!(
+            renumbered("1. one\n3. two\n\nprose\n\n7. one again\n9. two again"),
+            "1. one\n2. two\n\nprose\n\n7. one again\n8. two again"
+        );
+    }
+
+    #[test]
+    fn a_blank_line_between_items_does_not_restart_the_numbering() {
+        assert_eq!(renumbered("1. one\n\n3. two"), "1. one\n\n2. two");
+    }
+
+    #[test]
+    fn numbers_inside_a_code_block_are_text() {
+        let source = "```\n1. one\n5. five\n```";
+        assert!(renumber(source).is_empty());
+    }
+
+    #[test]
+    fn a_bullet_between_numbers_restarts_the_count() {
+        // Mixed markers are two lists that happen to touch, not one.
+        assert_eq!(
+            renumbered("1. one\n- milk\n7. one again"),
+            "1. one\n- milk\n7. one again"
+        );
+    }
+
+    #[test]
+    fn renumbering_is_multibyte_safe() {
+        assert_eq!(renumbered("1. 🎉 one\n3. wörld"), "1. 🎉 one\n2. wörld");
+    }
+
+    #[test]
+    fn renumbering_is_stable_under_incremental_typing() {
+        // Half-typed lists are the normal state; none may panic or report an
+        // edit outside the text.
+        let source = "1. one\n  2. a\n\n3. two\n```\n4. code\n```\n5. three";
+        for length in 0..=source.chars().count() {
+            let prefix: String = source.chars().take(length).collect();
+            let len = prefix.chars().count();
+            for edit in renumber(&prefix) {
+                assert!(edit.start < edit.end && edit.end <= len, "{prefix:?}");
+            }
+            // And applying the edits leaves a list that needs no more of them.
+            let settled = renumbered(&prefix);
+            assert!(renumber(&settled).is_empty(), "{prefix:?} did not settle");
+        }
     }
 
     #[test]

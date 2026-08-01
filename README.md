@@ -103,6 +103,10 @@ as plain text.
 indent and bullet, or the next number. Enter on an empty item ends the list
 instead, and Backspace takes the bullet back off.
 
+**Numbering repairs itself.** Delete item 3 of 7 and the rest count 3, 4, 5, 6
+rather than leaving a gap. A list keeps whatever number it starts on, and each
+nesting level counts on its own.
+
 **The file stays plain Markdown.** Rendering is a view concern; `notes.json`
 holds exactly what you typed.
 

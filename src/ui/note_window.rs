@@ -41,6 +41,9 @@ mod imp {
         /// Set while `bind` is writing widget state, so the handlers it trips
         /// do not report those writes back as user edits.
         pub loading: Cell<bool>,
+        /// A renumbering pass is already waiting to run. Deleting a selection
+        /// can raise several delete signals; one pass settles them all.
+        pub renumber_queued: Cell<bool>,
         /// Whether the shell extension is reachable. "Keep on top" cannot work
         /// without it, so the button reflects that rather than pretending.
         pub placement_available: Cell<bool>,
@@ -338,6 +341,35 @@ impl NoteWindow {
         }
     }
 
+    /// Put ordered-list numbers back in sequence.
+    ///
+    /// Runs after a deletion, not after every keystroke: while you are typing,
+    /// the numbers you write are yours, but a list left counting 1, 2, 4, 5 by
+    /// a deletion is nothing anyone meant.
+    pub fn renumber_lists(&self) {
+        let Some(view) = self.imp().text_view.borrow().clone() else {
+            return;
+        };
+        let buffer = view.buffer();
+        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
+        let edits = markdown::renumber(&text);
+        if edits.is_empty() {
+            return;
+        }
+
+        // One undo step: Ctrl+Z should take the numbering back in the same
+        // breath as whatever it was correcting.
+        buffer.begin_user_action();
+        // Back to front, so an earlier edit cannot shift a later offset.
+        for edit in edits.iter().rev() {
+            let mut start = buffer.iter_at_offset(edit.start as i32);
+            let mut end = buffer.iter_at_offset(edit.end as i32);
+            buffer.delete(&mut start, &mut end);
+            buffer.insert(&mut start, &edit.number.to_string());
+        }
+        buffer.end_user_action();
+    }
+
     /// Show or hide the Markdown syntax characters.
     pub fn set_markup_visible(&self, visible: bool) {
         if let Some(tag) = self.imp().marker_tag.borrow().as_ref() {
@@ -534,6 +566,28 @@ impl NoteWindow {
             }
         ));
         text_view.add_controller(keys);
+
+        // Deleting item 3 of 7 must not leave the rest counting 4, 5, 6. The
+        // signal arrives before the text is actually gone, and a buffer cannot
+        // be edited from inside its own delete handler anyway, so the pass is
+        // deferred to the idle straight after.
+        text_view.buffer().connect_delete_range(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_buffer, _start, _end| {
+                if win.imp().loading.get() || win.imp().renumber_queued.replace(true) {
+                    return;
+                }
+                glib::idle_add_local_once(clone!(
+                    #[weak]
+                    win,
+                    move || {
+                        win.imp().renumber_queued.set(false);
+                        win.renumber_lists();
+                    }
+                ));
+            }
+        ));
 
         text_view.buffer().connect_changed(clone!(
             #[weak(rename_to = win)]

@@ -448,6 +448,55 @@ fn enter_carries_a_list_on_to_the_next_line() {
     );
 }
 
+fn deleting_an_item_renumbers_the_rest_of_the_list() {
+    let app = init();
+    let window = NoteWindow::new(&app);
+    window.bind(&note("1. one\n2. two\n3. three\n4. four", Palette::Yellow));
+    drain_events();
+
+    let changes = Rc::new(Cell::new(0));
+    window.connect_closure(
+        "body-changed",
+        false,
+        glib::closure_local!(
+            #[strong]
+            changes,
+            move |_win: NoteWindow| changes.set(changes.get() + 1)
+        ),
+    );
+
+    // Take out item 3, newline and all, the way selecting the line and
+    // pressing Delete does.
+    let view = window
+        .content()
+        .and_then(find_text_view)
+        .expect("text view");
+    let buffer = view.buffer();
+    let mut start = buffer.iter_at_line(2).expect("line 3");
+    let mut end = buffer.iter_at_line(3).expect("line 4");
+    buffer.delete(&mut start, &mut end);
+    drain_events();
+
+    assert_eq!(
+        window.body(),
+        "1. one\n2. two\n3. four",
+        "the item that was 4 becomes 3 rather than leaving a gap"
+    );
+    assert!(
+        changes.get() > 0,
+        "and the renumbering reaches the store like any other edit"
+    );
+
+    // A list that is already right is left alone, cursor and all.
+    buffer.place_cursor(&buffer.iter_at_offset(4));
+    let before = window.body();
+    let mut start = buffer.iter_at_offset(3);
+    let mut end = buffer.iter_at_offset(4);
+    buffer.delete(&mut start, &mut end);
+    drain_events();
+    assert_eq!(window.body(), before.replacen("one", "ne", 1));
+}
+
 fn deleting_an_empty_note_skips_the_confirmation() {
     let app = init();
     let window = NoteWindow::new(&app);
@@ -821,6 +870,7 @@ fn note_window_suite() {
     case!(markdown_is_styled_and_its_markup_hidden_until_focused);
     case!(editing_restyles_without_reporting_a_spurious_change);
     case!(enter_carries_a_list_on_to_the_next_line);
+    case!(deleting_an_item_renumbers_the_rest_of_the_list);
     case!(deleting_an_empty_note_skips_the_confirmation);
     case!(deleting_a_note_with_content_asks_first);
     case!(stored_size_is_applied_and_clamped_to_the_minimum);
@@ -832,7 +882,7 @@ fn note_window_suite() {
 
     assert!(
         failures.is_empty(),
-        "{} of 25 widget cases failed: {:#?}\n(panic messages are printed above, in order)",
+        "{} of 26 widget cases failed: {:#?}\n(panic messages are printed above, in order)",
         failures.len(),
         failures
     );
