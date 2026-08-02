@@ -274,6 +274,21 @@ impl NoteWindow {
             tag.set_underline(gtk::pango::Underline::Single)
         });
 
+        // Constructs the shared scanner reports that a sticky note can still
+        // usefully show: a checkbox, a divider, a table, a frontmatter block.
+        // Monospace where columns have to line up, since a text view cannot
+        // draw a rule between them — the characters are the table.
+        add("md-task", &|tag| tag.set_family(Some("monospace")));
+        add("md-rule", &|_| {});
+        add("md-table", &|tag| {
+            tag.set_family(Some("monospace"));
+            tag.set_scale(0.95);
+        });
+        add("md-frontmatter", &|tag| {
+            tag.set_family(Some("monospace"));
+            tag.set_scale(0.85);
+        });
+
         // The one tag whose visibility is toggled.
         add("md-marker", &|tag| tag.set_invisible(true));
     }
@@ -333,11 +348,34 @@ impl NoteWindow {
                 Style::Quote => "md-quote".into(),
                 Style::ListItem(level) => format!("md-list{level}"),
                 Style::Link => "md-link".into(),
+                Style::Task(_) => "md-task".into(),
+                Style::Rule => "md-rule".into(),
+                Style::TableRow | Style::TableDelimiter => "md-table".into(),
+                Style::Frontmatter => "md-frontmatter".into(),
+                // A note here points at nothing: there is no vault behind a
+                // sticky. The scanner reports them because Brain's notes have
+                // them, and they stay as the text they were typed as.
+                Style::WikiLink | Style::Embed | Style::Tag => continue,
             };
             apply(&name, start, span.end);
         }
+
+        // …which means their syntax is not syntax here. Hiding `![[photo.png]]`
+        // is right in a notebook that draws the photo underneath and wrong on a
+        // sticky note, where it would leave the line empty.
+        let vault: Vec<(usize, usize)> = parsed
+            .spans
+            .iter()
+            .filter(|span| matches!(span.style, Style::WikiLink | Style::Embed))
+            .map(|span| (span.start, span.end))
+            .collect();
         for marker in &parsed.markers {
-            apply("md-marker", marker.start, marker.end);
+            let points_at_a_vault = vault
+                .iter()
+                .any(|&(start, end)| marker.reveal.0 <= start && end <= marker.reveal.1);
+            if !points_at_a_vault {
+                apply("md-marker", marker.start, marker.end);
+            }
         }
     }
 

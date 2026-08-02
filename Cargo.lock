@@ -548,6 +548,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "quill"
+version = "0.1.0"
+source = "git+https://github.com/mhagrelius/quill?rev=e28603237916589af22314acbb098849fd5da8fa#e28603237916589af22314acbb098849fd5da8fa"
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -661,6 +666,7 @@ dependencies = [
  "gio",
  "gtk4",
  "libadwaita",
+ "quill",
  "serde",
  "serde_json",
  "tempfile",

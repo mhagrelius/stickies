@@ -782,6 +782,74 @@ fn markdown_is_styled_and_its_markup_hidden_until_focused() {
     );
 }
 
+/// The scanner is shared with Brain, whose notes live in a vault and link to
+/// each other. A sticky note does not. Brain hides `![[photo.png]]` because it
+/// draws the photo underneath; hiding it here would leave the line blank and
+/// the text only findable by clicking into the note.
+fn a_note_that_points_at_a_vault_keeps_its_brackets() {
+    let app = init();
+    let window = NoteWindow::new(&app);
+    window.bind(&note("see ![[photo.png]] and [[Recipes]]", Palette::Yellow));
+    window.set_markup_visible(false);
+    drain_events();
+
+    let view = window
+        .content()
+        .and_then(find_text_view)
+        .expect("text view");
+    let buffer = view.buffer();
+    let marker = buffer.tag_table().lookup("md-marker").expect("md-marker");
+    assert!(marker.is_invisible(), "the note is not focused");
+
+    let body = window.body();
+    for (what, at) in [("!", "see "), ("[[", "see !"), ("[[", "and ")] {
+        let offset = body.find(&format!("{at}{what}")).expect("the note") + at.len();
+        let iter = buffer.iter_at_offset(offset as i32);
+        assert!(
+            !iter.has_tag(&marker),
+            "{what:?} at {offset} was hidden; the note would read as a gap"
+        );
+    }
+}
+
+/// `apply` looks a tag up by name and quietly does nothing when it is missing,
+/// so a construct nobody installed a tag for goes unstyled in silence. Every
+/// style the shared scanner can report has to land on something.
+fn every_construct_the_shared_scanner_reports_is_styled() {
+    let app = init();
+    let window = NoteWindow::new(&app);
+    window.bind(&note(
+        "- [ ] milk\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |",
+        Palette::Yellow,
+    ));
+    window.set_markup_visible(false);
+    drain_events();
+
+    let view = window
+        .content()
+        .and_then(find_text_view)
+        .expect("text view");
+    let buffer = view.buffer();
+    let table = buffer.tag_table();
+    let body = window.body();
+
+    for (name, at) in [("md-task", "[ ]"), ("md-table", "| a |")] {
+        let offset = body.find(at).expect("the note") + 1;
+        let tag = table
+            .lookup(name)
+            .unwrap_or_else(|| panic!("no {name} tag"));
+        assert!(
+            buffer.iter_at_offset(offset as i32).has_tag(&tag),
+            "{at:?} is not styled as {name}"
+        );
+    }
+    assert!(table.lookup("md-rule").is_some(), "no md-rule tag");
+    assert!(
+        table.lookup("md-frontmatter").is_some(),
+        "no md-frontmatter tag"
+    );
+}
+
 fn editing_restyles_without_reporting_a_spurious_change() {
     let app = init();
     let window = NoteWindow::new(&app);
@@ -868,6 +936,8 @@ fn note_window_suite() {
     case!(put_away_keeps_the_note_and_only_hides_it);
     case!(the_title_bar_shows_the_note_not_its_markup);
     case!(markdown_is_styled_and_its_markup_hidden_until_focused);
+    case!(a_note_that_points_at_a_vault_keeps_its_brackets);
+    case!(every_construct_the_shared_scanner_reports_is_styled);
     case!(editing_restyles_without_reporting_a_spurious_change);
     case!(enter_carries_a_list_on_to_the_next_line);
     case!(deleting_an_item_renumbers_the_rest_of_the_list);

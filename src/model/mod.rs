@@ -4,7 +4,9 @@
 //! server, no Wayland socket and no `gtk::init()`.
 
 pub mod geometry;
-pub mod markdown;
+// The scanner is a crate now, shared with Brain and Familiar. Re-exported under
+// the path it has always had here.
+pub use quill as markdown;
 pub mod note;
 pub mod store;
 

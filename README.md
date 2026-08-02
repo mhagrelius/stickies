@@ -151,8 +151,9 @@ src/
   model/          no GTK, no display — unit-testable anywhere
     note.rs         a note: id, body, palette, geometry, visible, pinned
     geometry.rs     monitor-relative placement arithmetic
-    markdown.rs     the live-preview parser: styles *and* hideable syntax
     store.rs        the notes.json file: atomic writes, corruption recovery
+                  the live-preview scanner — styles *and* hideable syntax —
+                  is the quill crate, shared with Brain and Familiar
   placement.rs    D-Bus client for the shell extension
   tray.rs         StatusNotifierItem + dbusmenu, on plain gio
   ui/

@@ -15,6 +15,12 @@ name = "stickies"
 path = "src/lib.rs"
 
 [dependencies]
+# The Markdown scanner, which used to live in src/model/markdown.rs. Brain
+# forked that copy and grew tables, wikilinks, task checkboxes and frontmatter
+# on it, so there were two of one parser; it moved out to a crate all three apps
+# read. No dependencies and nothing in it draws — how a note is *revealed* is
+# still this app's own decision, in note_window.rs.
+quill = { git = "https://github.com/mhagrelius/quill", rev = "e28603237916589af22314acbb098849fd5da8fa" }
 gtk = { package = "gtk4", version = "0.11", features = ["v4_22"] }
 adw = { package = "libadwaita", version = "0.9", features = ["v1_9"] }
 # Direct dependency purely to raise the API level: gtk4 pulls gio in at a
