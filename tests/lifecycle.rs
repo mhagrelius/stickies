@@ -6,8 +6,13 @@
 //!
 //! ```sh
 //! GSETTINGS_BACKEND=memory GTK_A11Y=none cargo test --test lifecycle
-//! # or, headless:  xvfb-run -a dbus-run-session -- cargo test --test lifecycle
+//! # or, headless:  isolated-bus --headless -- cargo test --test lifecycle
 //! ```
+//!
+//! Headless goes through `isolated-bus`, never bare `dbus-run-session`: a
+//! private bus on the login session's `XDG_RUNTIME_DIR` activates a second
+//! `xdg-document-portal` over `/run/user/$UID/doc` and unmounts the real one on
+//! exit, which breaks every flatpak on the machine.
 //!
 //! `XDG_DATA_HOME` is redirected to a temporary directory before the
 //! application starts, so these never touch real notes.

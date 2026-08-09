@@ -51,7 +51,7 @@ fn init() -> adw::Application {
                 .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
                 .build();
             app.register(gtk::gio::Cancellable::NONE)
-                .expect("could not register on the session bus — try dbus-run-session");
+                .expect("could not register on the session bus — try isolated-bus --headless --");
             app
         };
     }
