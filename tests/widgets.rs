@@ -497,6 +497,47 @@ fn deleting_an_item_renumbers_the_rest_of_the_list() {
     assert_eq!(window.body(), before.replacen("one", "ne", 1));
 }
 
+fn a_new_item_renumbers_the_items_below_it() {
+    let app = init();
+    let window = NoteWindow::new(&app);
+    window.bind(&note("1. one\n2. two\n3. three", Palette::Yellow));
+    drain_events();
+
+    let view = window
+        .content()
+        .and_then(find_text_view)
+        .expect("text view");
+    let buffer = view.buffer();
+
+    // Enter at the end of the first item, which is where a fourth item gets
+    // written into the middle of a list.
+    buffer.place_cursor(&buffer.iter_at_line(1).expect("line 2"));
+    let mut cursor = buffer.iter_at_mark(&buffer.get_insert());
+    cursor.backward_char();
+    buffer.place_cursor(&cursor);
+    send_enter(&view);
+    drain_events();
+
+    assert_eq!(
+        window.body(),
+        "1. one\n2. \n3. two\n4. three",
+        "the items below the new one count on from it"
+    );
+    assert_eq!(
+        buffer.iter_at_mark(&buffer.get_insert()).offset(),
+        10,
+        "and the cursor is left in the new item, not dragged off by the rewrite"
+    );
+
+    buffer.undo();
+    drain_events();
+    assert_eq!(
+        window.body(),
+        "1. one\n2. two\n3. three",
+        "one Ctrl+Z takes back the new item and the renumbering together"
+    );
+}
+
 fn deleting_an_empty_note_skips_the_confirmation() {
     let app = init();
     let window = NoteWindow::new(&app);
@@ -941,6 +982,7 @@ fn note_window_suite() {
     case!(editing_restyles_without_reporting_a_spurious_change);
     case!(enter_carries_a_list_on_to_the_next_line);
     case!(deleting_an_item_renumbers_the_rest_of_the_list);
+    case!(a_new_item_renumbers_the_items_below_it);
     case!(deleting_an_empty_note_skips_the_confirmation);
     case!(deleting_a_note_with_content_asks_first);
     case!(stored_size_is_applied_and_clamped_to_the_minimum);
@@ -952,7 +994,7 @@ fn note_window_suite() {
 
     assert!(
         failures.is_empty(),
-        "{} of 26 widget cases failed: {:#?}\n(panic messages are printed above, in order)",
+        "{} of 29 widget cases failed: {:#?}\n(panic messages are printed above, in order)",
         failures.len(),
         failures
     );

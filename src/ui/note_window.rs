@@ -381,30 +381,19 @@ impl NoteWindow {
 
     /// Put ordered-list numbers back in sequence.
     ///
-    /// Runs after a deletion, not after every keystroke: while you are typing,
-    /// the numbers you write are yours, but a list left counting 1, 2, 4, 5 by
-    /// a deletion is nothing anyone meant.
+    /// Runs after the app itself changes what the items are — a deletion, or
+    /// Enter laying down a new one — not after every keystroke: while you are
+    /// typing, the numbers you write are yours, but a list left counting 1, 2,
+    /// 4, 5 by a deletion is nothing anyone meant.
     pub fn renumber_lists(&self) {
         let Some(view) = self.imp().text_view.borrow().clone() else {
             return;
         };
         let buffer = view.buffer();
-        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
-        let edits = markdown::renumber(&text);
-        if edits.is_empty() {
-            return;
-        }
-
         // One undo step: Ctrl+Z should take the numbering back in the same
         // breath as whatever it was correcting.
         buffer.begin_user_action();
-        // Back to front, so an earlier edit cannot shift a later offset.
-        for edit in edits.iter().rev() {
-            let mut start = buffer.iter_at_offset(edit.start as i32);
-            let mut end = buffer.iter_at_offset(edit.end as i32);
-            buffer.delete(&mut start, &mut end);
-            buffer.insert(&mut start, &edit.number.to_string());
-        }
+        renumber_in_place(&buffer);
         buffer.end_user_action();
     }
 
@@ -927,6 +916,21 @@ impl NoteWindow {
     }
 }
 
+/// Rewrite the ordered-list numbers that have fallen out of sequence.
+///
+/// No user action of its own, so the caller decides what the correction is
+/// undone alongside.
+fn renumber_in_place(buffer: &gtk::TextBuffer) {
+    let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
+    // Back to front, so an earlier edit cannot shift a later offset.
+    for edit in markdown::renumber(&text).iter().rev() {
+        let mut start = buffer.iter_at_offset(edit.start as i32);
+        let mut end = buffer.iter_at_offset(edit.end as i32);
+        buffer.delete(&mut start, &mut end);
+        buffer.insert(&mut start, &edit.number.to_string());
+    }
+}
+
 /// Carry a list on to the next line when Enter is pressed inside one.
 ///
 /// A list you have to retype the bullet for is a list you stop using, so Enter
@@ -959,6 +963,10 @@ fn continue_list(view: &gtk::TextView) -> glib::Propagation {
     match action {
         markdown::ListEnter::Continue(prefix) => {
             buffer.insert_at_cursor(&format!("\n{prefix}"));
+            // A new item in the middle pushes every number below it along.
+            // Inside the same user action, so one Ctrl+Z takes back the item
+            // and the renumbering together.
+            renumber_in_place(&buffer);
         }
         // Leave the cursor on the now-blank line: the list is over, and the
         // next Enter is an ordinary one.
