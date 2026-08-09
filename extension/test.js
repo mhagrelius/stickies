@@ -56,6 +56,26 @@ function assertEqual(actual, expected, message) {
         throw new Error(`${message ?? 'mismatch'}: got ${a}, expected ${b}`);
 }
 
+function source(name) {
+    const [, bytes] = GLib.file_get_contents(name);
+    return new TextDecoder().decode(bytes);
+}
+
+/** Source with comments removed, for checks that would otherwise read prose. */
+function code(name) {
+    return source(name)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+}
+
+/** The modules loaded into the gnome-shell process, in load order. */
+const SHELL_MODULES = [
+    'extension.js',
+    'service.js',
+    'shortcut.js',
+    'taskbarHider.js',
+];
+
 // The machine this was written on: one ultrawide, work area inset by the
 // GNOME top bar and the Ubuntu dock.
 const ULTRAWIDE = {x: 72, y: 37, width: 5048, height: 1403};
@@ -351,23 +371,37 @@ print('settings schema');
 check('every gi:// namespace used is actually imported', () => {
     // Nothing here runs outside gnome-shell, so a missing import is invisible
     // until enable() throws in a live session — which costs a logout to
-    // discover. This is the cheap static substitute.
-    const [, bytes] = GLib.file_get_contents('extension.js');
-    const source = new TextDecoder().decode(bytes);
+    // discover. This is the cheap static substitute, and it has to cover every
+    // shell module: splitting one file into four multiplied the places an
+    // import can go missing.
+    for (const name of SHELL_MODULES) {
+        const text = code(name);
 
-    const imported = new Set(
-        [...source.matchAll(/^import (\w+) from 'gi:\/\//gm)].map(m => m[1])
-    );
-    imported.add('Main'); // namespace import from a shell resource
+        const imported = new Set(
+            [...text.matchAll(/^import (\w+) from 'gi:\/\//gm)].map(m => m[1])
+        );
+        imported.add('Main'); // namespace import from a shell resource
 
-    const used = new Set(
-        [...source.matchAll(/\b(Gio|GLib|GObject|Meta|Shell|Clutter|St|Main)\./g)].map(m => m[1])
-    );
+        const used = new Set(
+            [...text.matchAll(/\b(Gio|GLib|GObject|Meta|Shell|Clutter|St|Main)\./g)].map(m => m[1])
+        );
 
-    for (const namespace of used) {
+        for (const namespace of used) {
+            assert(
+                imported.has(namespace),
+                `${name}: ${namespace}. is used but never imported — enable() will throw`
+            );
+        }
+    }
+});
+
+check('no shell module imports a toolkit that belongs to prefs', () => {
+    // extension.js and prefs.js are different processes; Gtk, Gdk or Adw in
+    // this half conflicts with Clutter and is an outright EGO rejection.
+    for (const name of [...SHELL_MODULES, 'geometry.js', 'interface.js']) {
         assert(
-            imported.has(namespace),
-            `${namespace}. is used but never imported — enable() will throw`
+            !/from 'gi:\/\/(Gtk|Gdk|Adw)'/.test(source(name)),
+            `${name} must not import Gtk, Gdk or Adw`
         );
     }
 });
@@ -428,12 +462,11 @@ check('the shortcut targets the app\'s own action group', () => {
     assertEqual(APP_BUS_NAME, 'us.hagreli.Stickies');
     assertEqual(APP_OBJECT_PATH, '/us/hagreli/Stickies');
 
-    const [, bytes] = GLib.file_get_contents('extension.js');
-    const source = new TextDecoder().decode(bytes);
-    assert(source.includes("'org.gtk.Actions'"), 'must call org.gtk.Actions');
-    assert(source.includes("'Activate'"), 'must use the Activate method');
+    const text = source('shortcut.js');
+    assert(text.includes("'org.gtk.Actions'"), 'must call org.gtk.Actions');
+    assert(text.includes("'Activate'"), 'must use the Activate method');
     assert(
-        source.includes("'(sava{sv})'"),
+        text.includes("'(sava{sv})'"),
         'org.gtk.Actions.Activate takes (sava{sv}); a wrong signature fails silently'
     );
 });
@@ -442,34 +475,54 @@ check('taskbar hiding uses the method, not the read-only property', () => {
     // Meta.Window:skip-taskbar is read-only; assigning to it fails silently,
     // which is indistinguishable from "this Mutter does not support it".
     // hide_from_window_list()/show_in_window_list() are the real API.
-    const [, bytes] = GLib.file_get_contents('extension.js');
-    const source = new TextDecoder().decode(bytes);
+    const text = source('taskbarHider.js');
 
     assert(
-        !/\.skip_taskbar\s*=/.test(source),
+        !/\.skip_taskbar\s*=/.test(text),
         'assigning to skip_taskbar is a silent no-op; call hide_from_window_list()'
     );
-    assert(source.includes('hide_from_window_list'), 'must hide via the method');
+    assert(text.includes('hide_from_window_list'), 'must hide via the method');
     assert(
-        source.includes('show_in_window_list'),
-        'disable() must put windows back in the dock'
+        text.includes('show_in_window_list'),
+        'destroy() must put windows back in the dock'
     );
 });
 
 check('everything enable() creates is torn down in disable()', () => {
-    const [, bytes] = GLib.file_get_contents('extension.js');
-    const source = new TextDecoder().decode(bytes);
+    const text = source('extension.js');
 
-    for (const field of ['_service', '_shortcut', '_hider']) {
+    for (const field of ['_service', '_shortcut', '_hider', '_settings']) {
         assert(
-            source.includes(`this.${field} = null`),
+            text.includes(`this.${field} = null`),
             `disable() must release ${field}`
         );
     }
     assert(
-        source.includes('removeKeybinding'),
+        text.includes('this._settings.disconnect(this._hideChangedId)'),
+        'the settings handler outlives disable() unless it is disconnected'
+    );
+    assert(
+        source('shortcut.js').includes('removeKeybinding'),
         'a keybinding left registered survives disable and blocks the key'
     );
+});
+
+check('no module hedges over shell versions', () => {
+    // The EGO best practices reject `typeof x === 'function'` and `?.()` on
+    // guaranteed APIs — they are what gets written when hedging across shell
+    // versions nobody chose to target. Every Meta method used here has been in
+    // Mutter since well before the declared floor.
+    for (const name of SHELL_MODULES) {
+        const text = source(name);
+        assert(
+            !/typeof \w+(\.\w+)+ [!=]== 'function'/.test(text),
+            `${name}: probing for a method that is always there`
+        );
+        assert(
+            !/\bget_gtk_window_object_path\?\./.test(text),
+            `${name}: get_gtk_window_object_path is a plain Meta.Window method`
+        );
+    }
 });
 
 print('');
